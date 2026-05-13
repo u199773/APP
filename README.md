@@ -124,3 +124,58 @@ Las imágenes deportivas están dentro de la carpeta `assets/`:
 - `assets/pickleball-paddle-close.png`
 
 No se usan imágenes externas de deporte. Las ligas, portadas, cards de clubs y fondos deportivos usan estas imágenes locales.
+
+## Nuevo flujo de inscripciones
+
+Este ZIP mantiene la app igual, pero añade el comportamiento pedido para diferenciar entre modo demo y una cuenta nueva registrada:
+
+### Modo demo
+
+- Al entrar con **Entrar en modo demo**, la app muestra todas las funciones completas:
+  - Inicio
+  - Mis partidos
+  - Ligas
+  - Mensajes
+  - Descuentos
+  - Perfil
+
+### Cuenta creada desde registro
+
+- Si creas una cuenta nueva desde **Crear cuenta**, la app no activa todavía la liga.
+- La cuenta puede acceder a:
+  - Ligas
+  - Descuentos
+  - Perfil
+- Si intenta entrar en:
+  - Mis partidos
+  - Mensajes
+
+  verá una pantalla de **Inscríbete a la liga**.
+
+### Apartado Inscripciones
+
+Desde la pantalla bloqueada se abre el nuevo apartado **Inscripciones**, con dos opciones:
+
+1. **Liga de Verano en juego**
+   - Aparece como liga ya iniciada.
+   - Permite **Apuntarse como reserva**.
+   - Al pulsar, muestra que se avisará cuando haya plaza.
+
+2. **Liga de Invierno Pickleball**
+   - Muestra **+400 jugadores inscritos**.
+   - Permite elegir categoría y provincia.
+   - Al pulsar **Pagar e inscribirme**, el pago es simulado.
+   - Después se desbloquean las funciones de partidos y mensajes.
+   - En **Mis partidos** aparecerá el estado **Próximamente**, indicando que el calendario se asignará cuando se cierre el grupo.
+
+Todos los cambios siguen funcionando con `localStorage`; no hay backend ni pagos reales.
+
+## Cambios de inscripción y nivelación
+
+- La pestaña inferior **Descuentos** se ha sustituido por **Inscripción**.
+- El apartado **Descuentos** sigue existiendo dentro de la app, pero ya no ocupa una pestaña inferior.
+- Al crear una cuenta nueva, antes de entrar en la app aparece una **nivelación inicial** con 5 preguntas sobre fondo de pista, cocina, técnica, experiencia y táctica.
+- Según las respuestas, la app asigna automáticamente un nivel inicial.
+- Ese nivel se muestra en Perfil, Inscripciones y en los datos de liga necesarios.
+- En la inscripción a la Liga de Invierno se usa el nivel asignado para colocar al jugador en el grupo correcto.
+- El modo demo mantiene el acceso completo a todas las funciones como antes.

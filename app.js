@@ -63,7 +63,8 @@ let state = {
   leagueFilters: { province: "", sport: "", search: "" },
   clubFilters: { province: "", city: "", type: "", search: "" },
   rankingCategory: "Mixto",
-  rankingLevel: "2.5"
+  rankingLevel: "2.5",
+  pendingRegistration: null
 };
 
 const app = document.getElementById("app");
@@ -95,6 +96,7 @@ function init() {
 function normalizeUser(user) {
   if (!user || typeof user !== "object") return null;
   const fallback = createDefaultUser();
+  const isDemo = user.accessMode === "demo" || user.email === fallback.email;
   return {
     ...fallback,
     ...user,
@@ -102,7 +104,13 @@ function normalizeUser(user) {
     level: user.level || fallback.level,
     category: user.category || fallback.category,
     province: user.province || fallback.province,
-    city: user.city || fallback.city
+    city: user.city || fallback.city,
+    accessMode: isDemo ? "demo" : (user.accessMode || "registered"),
+    leagueAccess: isDemo ? "active" : (user.leagueAccess || "none"),
+    signupStatus: isDemo ? "demo" : (user.signupStatus || "not_enrolled"),
+    levelSource: user.levelSource || (isDemo ? "demo" : "nivelación inicial"),
+    levelScore: Number.isFinite(Number(user.levelScore)) ? Number(user.levelScore) : (isDemo ? 12 : null),
+    levelAssessment: user.levelAssessment || null
   };
 }
 
@@ -177,6 +185,14 @@ function writeJSON(key, value) {
 
 function persistUser() { writeJSON(STORAGE.user, state.user); }
 function persistData() { writeJSON(STORAGE.data, state.data); }
+
+function hasFullLeagueAccess() {
+  return Boolean(state.user && (state.user.accessMode === "demo" || state.user.leagueAccess === "active"));
+}
+
+function isWaitingForWinterCalendar() {
+  return Boolean(state.user && state.user.signupStatus === "winter-paid");
+}
 
 function pick(list, index) { return list[Math.abs(index) % list.length]; }
 function initials(name = "RG") { return name.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
@@ -303,7 +319,13 @@ function createDefaultUser() {
     level: "2.5",
     category: "Mixto",
     sport: "Pickleball",
-    avatar: avatar(12)
+    avatar: avatar(12),
+    accessMode: "demo",
+    leagueAccess: "active",
+    signupStatus: "demo",
+    levelSource: "demo",
+    levelScore: 12,
+    levelAssessment: null
   };
 }
 
@@ -481,8 +503,8 @@ function registerForm() {
         ${selectField("gender", "Género", ["Masculino", "Femenino", "No binario", "Prefiero no decirlo"], "Masculino")}
       </div>
       <div class="filter-grid">
-        ${selectField("level", "Nivel aproximado inicial", LEVELS, "2.5")}
         ${selectField("category", "Categoría preferida", CATEGORIES, "Mixto")}
+        <div class="form-row"><label>Nivel inicial</label><div class="level-preview-box">Se asignará con 5 preguntas de nivelación</div></div>
       </div>
       ${inputField("password", "Contraseña falsa", "password", "••••••••")}
       <label class="checkbox-line"><input type="checkbox" name="terms" required /> Acepto los términos, privacidad y uso del chat solo para coordinar partidos.</label>
@@ -503,6 +525,90 @@ function loginForm() {
     </form>`;
 }
 
+
+function renderLevelAssessment() {
+  const pending = state.pendingRegistration;
+  if (!pending) return renderAuth("register");
+  app.innerHTML = `
+    <div class="bg-orb one"></div><div class="bg-orb two"></div><div class="bg-orb three"></div>
+    <section class="auth-shell">
+      <div class="auth-card assessment-card">
+        <div class="auth-top">
+          <div class="row">
+            <div class="logo-mark">RG</div>
+            <div><div class="logo-text">Nivelación</div><div class="logo-sub">Asignación automática de nivel</div></div>
+          </div>
+          <button class="btn btn-ghost btn-small" data-action="show-register">Volver</button>
+        </div>
+        <h1 class="auth-title">5 preguntas rápidas</h1>
+        <p class="auth-lead">Responde según tu nivel real. La app te asignará un nivel inicial para inscribirte en la categoría correcta.</p>
+        <form class="form-grid section" id="levelAssessmentForm" novalidate>
+          ${assessmentQuestion("q1", "1. Fondo de pista", "¿Cómo te sientes jugando puntos largos desde el fondo de pista?", [
+            [0, "Me cuesta mantener la bola en juego"],
+            [1, "Aguanto intercambios cortos con errores frecuentes"],
+            [2, "Soy bastante consistente a velocidad media"],
+            [3, "Dirijo la bola y cambio profundidades con control"],
+            [4, "Compito cómodo en puntos largos y bajo presión"]
+          ])}
+          ${assessmentQuestion("q2", "2. Cocina / zona de no volea", "¿Qué control tienes en la cocina con dinks, bloqueos y bolas bajas?", [
+            [0, "Aún no domino la zona de cocina"],
+            [1, "Sé colocarme, pero fallo muchas bolas bajas"],
+            [2, "Mantengo dinks básicos y bloqueo bolas sencillas"],
+            [3, "Puedo construir puntos con dinks y paciencia"],
+            [4, "Uso cocina, bloqueos y cambios de ritmo con intención táctica"]
+          ])}
+          ${assessmentQuestion("q3", "3. Golpes técnicos", "¿Qué tal ejecutas saque, resto, volea y tercer golpe?", [
+            [0, "Estoy aprendiendo los golpes básicos"],
+            [1, "Saco y resto, pero sin mucha regularidad"],
+            [2, "Tengo golpes básicos sólidos y tercer golpe simple"],
+            [3, "Uso tercer golpe, voleas y globos con bastante control"],
+            [4, "Ejecuto golpes avanzados con dirección, altura y profundidad"]
+          ])}
+          ${assessmentQuestion("q4", "4. Experiencia jugando partidos", "¿Cuánta experiencia tienes compitiendo o jugando partidos organizados?", [
+            [0, "Casi ninguna"],
+            [1, "Partidos ocasionales con amigos"],
+            [2, "Juego cada semana y conozco bien las reglas"],
+            [3, "He jugado ligas, torneos o americanas"],
+            [4, "Compito regularmente y estoy acostumbrado a formatos exigentes"]
+          ])}
+          ${assessmentQuestion("q5", "5. Táctica y toma de decisiones", "¿Cómo gestionas posicionamiento, elección de golpe y comunicación en dobles?", [
+            [0, "Me cuesta saber dónde colocarme"],
+            [1, "Entiendo lo básico, pero tomo decisiones tarde"],
+            [2, "Sé cuándo subir, defender y buscar la cocina"],
+            [3, "Leo el punto y juego con intención táctica"],
+            [4, "Tomo decisiones rápidas, adapto estrategia y coordino bien en dobles"]
+          ])}
+          <button class="btn btn-primary btn-full" type="submit">Calcular mi nivel y entrar</button>
+        </form>
+      </div>
+    </section>`;
+}
+
+function assessmentQuestion(name, title, subtitle, options) {
+  return `<fieldset class="assessment-question"><legend><strong>${title}</strong><span>${subtitle}</span></legend><div class="assessment-options">${options.map(([score, label]) => `<label class="assessment-option"><input type="radio" name="${name}" value="${score}" required><span>${label}</span></label>`).join("")}</div></fieldset>`;
+}
+
+function calculateInitialLevel(score) {
+  const total = Number(score) || 0;
+  if (total <= 1) return "0.5";
+  if (total <= 3) return "1.0";
+  if (total <= 5) return "1.5";
+  if (total <= 7) return "2.0";
+  if (total <= 9) return "2.5";
+  if (total <= 11) return "3.0";
+  if (total <= 13) return "3.5";
+  if (total <= 15) return "4.0";
+  if (total <= 17) return "4.5";
+  if (total <= 19) return "5.0";
+  return "5.5";
+}
+
+function levelLabel(user = state.user) {
+  if (!user) return "Nivel pendiente";
+  const source = user.levelSource ? ` · ${user.levelSource}` : "";
+  return `Nivel ${user.level || "—"}${source}`;
+}
+
 function inputField(name, label, type = "text", placeholder = "") {
   return `<div class="form-row"><label for="${name}">${label}</label><input class="input" id="${name}" name="${name}" type="${type}" placeholder="${placeholder}" required /></div>`;
 }
@@ -518,6 +624,7 @@ function demoLogin() {
   forcePickleballImages();
   persistUser();
   persistData();
+  state.pendingRegistration = null;
   state.view = "home";
   renderApp();
   showToast("Modo demo activado con datos completos de pickleball.");
@@ -540,7 +647,7 @@ function bottomNav() {
     ["matches", "⚔", "Partidos"],
     ["leagues", "🏆", "Ligas"],
     ["messages", "✉", "Mensajes"],
-    ["discounts", "◆", "Descuentos"],
+    ["inscriptions", "📝", "Inscripción"],
     ["profile", "☻", "Perfil"]
   ];
   const active = state.view === "leagueDetail" ? "leagues" : state.view;
@@ -555,6 +662,7 @@ function renderView() {
     matches: renderMatches,
     leagues: renderLeagues,
     leagueDetail: renderLeagueDetail,
+    inscriptions: renderInscriptions,
     messages: renderMessages,
     discounts: renderDiscounts,
     profile: renderProfile
@@ -566,7 +674,93 @@ function topbar(title, subtitle = "") {
   return `<div class="topbar"><div class="topbar-inner"><div class="user-mini"><img class="avatar" src="${state.user.avatar || avatar(8)}" alt="Avatar"><div><h1 class="h1">${title}</h1>${subtitle ? `<div class="tiny">${subtitle}</div>` : ""}</div></div><button class="btn btn-ghost btn-small" data-action="how-it-works">Reglas</button></div></div>`;
 }
 
+function renderLimitedHome() {
+  const u = state.user;
+  return `
+    ${topbar(`Hola, ${u.name}`, "Cuenta creada · inscripción pendiente")}
+    <section class="hero-panel limited-hero">
+      <span class="kicker">🎾 Activa tu liga</span>
+      <h2 class="hero-title" style="font-size:2.25rem">Elige una liga para empezar</h2>
+      <p class="hero-lead">Tu cuenta ya está creada. Mientras no estés inscrito, puedes explorar ligas, consultar descuentos y editar tu perfil. Para desbloquear partidos y mensajes, inscríbete en una liga disponible.</p>
+      <div class="hero-meta"><span class="chip chip-lime">Descuentos activos</span><span class="chip chip-blue">Ligas visibles</span><span class="chip chip-gold">Partidos bloqueados</span></div>
+    </section>
+    <section class="section grid-2">
+      <button class="cta-card" data-nav="leagues"><span class="emoji">🏆</span><strong>Ver ligas</strong><span>Explora provincias, categorías y niveles.</span></button>
+      <button class="cta-card" data-nav="discounts"><span class="emoji">◆</span><strong>Ver descuentos</strong><span>Consulta clubs colaboradores disponibles.</span></button>
+      <button class="cta-card" data-nav="profile"><span class="emoji">☻</span><strong>Perfil</strong><span>Completa o edita tus datos.</span></button>
+      <button class="cta-card" data-nav="inscriptions"><span class="emoji">📝</span><strong>Inscripciones</strong><span>Reserva plaza o inscríbete en invierno.</span></button>
+    </section>
+  `;
+}
+
+function renderAccessGate(sectionName) {
+  return `
+    ${topbar(sectionName, "Inscripción necesaria")}
+    <section class="hero-panel limited-hero">
+      <span class="kicker">🔒 Zona de liga activa</span>
+      <h2 class="hero-title" style="font-size:2.1rem">Inscríbete a una liga</h2>
+      <p class="hero-lead">Para usar ${sectionName.toLowerCase()} necesitas estar inscrito en una liga activa. Puedes seguir viendo ligas, descuentos y perfil mientras eliges tu próxima competición.</p>
+      <div class="hero-meta"><span class="chip chip-lime">Liga de verano</span><span class="chip chip-blue">Liga de invierno</span></div>
+    </section>
+    <section class="section glass-card">
+      <h2 class="h2">Desbloquea esta función</h2>
+      <p class="tiny">Al inscribirte tendrás acceso a partidos, mensajes con rivales, calendario de fase y gestión de resultados.</p>
+      <button class="btn btn-primary btn-full section" data-nav="inscriptions">Inscríbete a la liga</button>
+    </section>
+  `;
+}
+
+function renderInscriptions() {
+  const u = state.user;
+  return `
+    ${topbar("Inscripciones", "Próximas ligas y plazas disponibles")}
+    <section class="hero-panel inscriptions-hero">
+      <span class="kicker">📝 Pickleball League</span>
+      <h2 class="hero-title" style="font-size:2.2rem">Elige tu próxima liga</h2>
+      <p class="hero-lead">Apúntate como reserva si la liga ya está en juego o inscríbete en la próxima temporada para desbloquear partidos y mensajes.</p>
+      <div class="hero-meta"><span class="chip chip-gold">${u.province}</span><span class="chip chip-lime">${u.category}</span><span class="chip chip-blue">${levelLabel(u)}</span></div>
+    </section>
+
+    <section class="section card-stack">
+      <article class="inscription-card">
+        <div class="row-between">
+          <div><span class="kicker">Liga de verano</span><h2 class="h2">Liga de Verano en juego</h2><p class="tiny">La fase actual ya ha empezado. Puedes apuntarte como reserva y te avisaremos cuando haya plaza libre.</p></div>
+          <span class="chip chip-gold">En juego</span>
+        </div>
+        <div class="grid-2 section">
+          ${metricCard("Reserva", "Estado", "Lista de espera abierta")}
+          ${metricCard("12", "Puestos reserva", "Aviso automático simulado")}
+        </div>
+        <button class="btn btn-secondary btn-full section" data-action="join-summer-reserve">Apuntarme como reserva</button>
+      </article>
+
+      <article class="inscription-card featured-inscription">
+        <div class="row-between">
+          <div><span class="kicker">Liga de invierno</span><h2 class="h2">Liga de Invierno Pickleball</h2><p class="tiny">Más de 400 jugadores inscritos. Selecciona categoría y confirma el pago simulado para activar todas las funciones.</p></div>
+          <span class="chip chip-lime">+400 inscritos</span>
+        </div>
+        <form class="form-grid section" id="winterSignupForm">
+          <div class="filter-grid">
+            <div class="form-row"><label>Categoría</label><select class="select" name="category" required>${CATEGORIES.map(c => `<option ${u.category === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
+            <div class="form-row"><label>Provincia</label><select class="select" name="province" required>${PROVINCES.map(p => `<option ${u.province === p ? "selected" : ""}>${p}</option>`).join("")}</select></div>
+          </div>
+          <div class="glass-card assigned-level-box">
+            <div class="row-between"><span class="tiny">Nivel de inscripción</span><strong>${u.level || "—"}</strong></div>
+            <p class="tiny">Usaremos el nivel asignado en tu nivelación inicial para colocarte en el grupo correcto.</p>
+          </div>
+          <div class="glass-card" style="padding:12px;border-radius:18px;background:rgba(255,255,255,.045)">
+            <div class="row-between"><span class="tiny">Inscripción</span><strong>Pago simulado</strong></div>
+            <div class="row-between" style="margin-top:6px"><span class="tiny">Acceso</span><span class="chip chip-lime">Partidos + mensajes</span></div>
+          </div>
+          <button class="btn btn-primary btn-full" type="submit">Pagar e inscribirme</button>
+        </form>
+      </article>
+    </section>
+  `;
+}
+
 function renderHome() {
+  if (!hasFullLeagueAccess()) return renderLimitedHome();
   const u = state.user;
   const d = state.data.currentLeague;
   const matches = state.data.matches;
@@ -641,7 +835,31 @@ function phaseStatusCard() {
   </div>`;
 }
 
+function renderUpcomingMatches() {
+  const d = state.data.currentLeague;
+  return `
+    ${topbar("Mis partidos", "Calendario pendiente de asignación")}
+    <section class="hero-panel upcoming-hero">
+      <span class="kicker">✅ Inscripción confirmada</span>
+      <h2 class="hero-title" style="font-size:2.25rem">Próximamente</h2>
+      <p class="hero-lead">Ya tienes acceso completo. Tus partidos aparecerán aquí cuando se cierre el grupo de 4 jugadores de la Liga de Invierno.</p>
+      <div class="hero-meta"><span class="chip chip-lime">${d.name}</span><span class="chip chip-blue">${d.category}</span><span class="chip chip-gold">Nivel ${d.level}</span></div>
+    </section>
+    <section class="section glass-card">
+      <h2 class="h2">Estado de inscripción</h2>
+      ${progressBlock(25, "Preparación de calendario")}
+      <div class="grid-2 section">
+        ${metricCard("Pendiente", "Grupo", "Asignación próxima")}
+        ${metricCard("3", "Partidos", "Round robin por fase")}
+      </div>
+      <p class="tiny">Cuando haya rivales asignados, podrás abrir chat, proponer fecha y registrar resultados.</p>
+    </section>
+  `;
+}
+
 function renderMatches() {
+  if (!hasFullLeagueAccess()) return renderAccessGate("Mis partidos");
+  if (isWaitingForWinterCalendar()) return renderUpcomingMatches();
   const d = state.data.currentLeague;
   const filtered = filterMatches();
   return `
@@ -793,6 +1011,7 @@ function rankingTable(rows) {
 }
 
 function renderMessages() {
+  if (!hasFullLeagueAccess()) return renderAccessGate("Mensajes");
   if (state.selectedConversation) return renderChat();
   const conversations = state.data.conversations;
   const unread = conversations.reduce((acc, c) => acc + c.unread, 0);
@@ -869,7 +1088,7 @@ function renderProfile() {
     <section class="profile-card profile-hero">
       <img class="avatar-lg" src="${u.avatar || avatar(8)}" alt="${u.name}">
       <h2 class="h2">${u.name} ${u.surname}</h2>
-      <p class="tiny">${u.city}, ${u.province} · Nivel ${u.level} · ${u.category}</p>
+      <p class="tiny">${u.city}, ${u.province} · ${levelLabel(u)} · ${u.category}</p>
       <div class="pill-list" style="justify-content:center"><span class="chip chip-lime">${played} partidos</span><span class="chip chip-blue">${winRate}% victorias</span><span class="chip chip-gold">${state.data.incidents.length} incidencias</span></div>
     </section>
     <section class="grid-3 section">
@@ -879,7 +1098,7 @@ function renderProfile() {
     </section>
     <section class="section glass-card">
       <h2 class="h2">Datos personales</h2>
-      ${profileRow("Email", u.email)}${profileRow("Teléfono", u.phone)}${profileRow("Dirección", u.address)}${profileRow("Provincia", u.province)}${profileRow("Ciudad", u.city)}
+      ${profileRow("Email", u.email)}${profileRow("Teléfono", u.phone)}${profileRow("Dirección", u.address)}${profileRow("Provincia", u.province)}${profileRow("Ciudad", u.city)}${profileRow("Nivel asignado", `${u.level || "—"}${u.levelScore !== null && u.levelScore !== undefined ? ` · ${u.levelScore}/20` : ""}`)}
       <button class="btn btn-primary btn-full section" data-action="edit-profile">Editar perfil</button>
     </section>
     <section class="section glass-card">
@@ -1039,9 +1258,22 @@ function setView(view) {
 
 function validate(form) {
   let ok = true;
+  const checkedRadioGroups = new Set();
   form.querySelectorAll("[required]").forEach(field => {
-    const valid = field.type === "checkbox" ? field.checked : Boolean(field.value.trim());
-    field.classList.toggle("invalid", !valid);
+    let valid;
+    if (field.type === "checkbox") {
+      valid = field.checked;
+      field.classList.toggle("invalid", !valid);
+    } else if (field.type === "radio") {
+      if (checkedRadioGroups.has(field.name)) return;
+      checkedRadioGroups.add(field.name);
+      const group = Array.from(form.querySelectorAll(`input[type="radio"][name="${field.name}"]`));
+      valid = group.some(input => input.checked);
+      group.forEach(input => input.closest(".assessment-question")?.classList.toggle("invalid", !valid));
+    } else {
+      valid = Boolean(String(field.value || "").trim());
+      field.classList.toggle("invalid", !valid);
+    }
     if (!valid) ok = false;
   });
   return ok;
@@ -1082,6 +1314,7 @@ app.addEventListener("click", (event) => {
     return renderApp();
   }
   if (action === "open-chat") {
+    if (!hasFullLeagueAccess()) { state.view = "messages"; return renderApp(); }
     state.selectedConversation = button.dataset.chatId;
     const c = state.data.conversations.find(item => item.id === state.selectedConversation);
     if (c) c.unread = 0;
@@ -1093,15 +1326,20 @@ app.addEventListener("click", (event) => {
     state.selectedConversation = null;
     return renderView();
   }
-  if (action === "register-result") return resultModal(button.dataset.matchId);
-  if (action === "propose-date") return proposeDateModal(button.dataset.matchId);
-  if (action === "report-match") return incidentModal(button.dataset.matchId);
+  if (action === "register-result") return hasFullLeagueAccess() ? resultModal(button.dataset.matchId) : setView("matches");
+  if (action === "propose-date") return hasFullLeagueAccess() ? proposeDateModal(button.dataset.matchId) : setView("matches");
+  if (action === "report-match") return hasFullLeagueAccess() ? incidentModal(button.dataset.matchId) : setView("matches");
   if (action === "new-incident") return incidentModal();
   if (action === "report-message") return reportMessageModal(button.dataset.chatId);
   if (action === "block-user") return blockUser(button.dataset.chatId);
   if (action === "view-player") return viewPlayer(button.dataset.chatId);
   if (action === "view-discount") return viewDiscountModal(button.dataset.clubId);
   if (action === "directions") return showToast("Ruta simulada abierta. En producción se integraría con mapas.");
+  if (action === "join-summer-reserve") {
+    state.user.signupStatus = "summer-reserve";
+    persistUser();
+    return showToast("Te has apuntado como reserva. Te avisaremos cuando haya plaza.");
+  }
   if (action === "edit-profile") return editProfileModal();
   if (action === "help") return helpModal();
   if (action === "contact") return contactModal();
@@ -1163,30 +1401,49 @@ document.addEventListener("submit", (event) => {
   if (form.id === "registerForm") {
     event.preventDefault();
     if (!validate(form)) return showToast("Revisa los campos obligatorios.");
-    const data = formDataObject(form);
+    state.pendingRegistration = formDataObject(form);
+    renderLevelAssessment();
+    showToast("Cuenta preparada. Completa la nivelación para asignar tu nivel inicial.");
+  }
+
+  if (form.id === "levelAssessmentForm") {
+    event.preventDefault();
+    if (!validate(form)) return showToast("Responde las 5 preguntas de nivelación.");
+    const pending = state.pendingRegistration;
+    if (!pending) return renderAuth("register");
+    const answers = formDataObject(form);
+    const totalScore = Object.values(answers).reduce((sum, value) => sum + Number(value || 0), 0);
+    const assignedLevel = calculateInitialLevel(totalScore);
     state.user = {
-      name: data.name,
-      surname: data.surname,
-      email: data.email,
-      phone: data.phone,
-      address: data.address,
-      province: data.province,
-      city: data.city,
-      birth: data.birth,
-      gender: data.gender,
-      level: data.level,
-      category: data.category,
+      name: pending.name,
+      surname: pending.surname,
+      email: pending.email,
+      phone: pending.phone,
+      address: pending.address,
+      province: pending.province,
+      city: pending.city,
+      birth: pending.birth,
+      gender: pending.gender,
+      level: assignedLevel,
+      category: pending.category,
       sport: "Pickleball",
-      avatar: avatar(11)
+      avatar: avatar(11),
+      accessMode: "registered",
+      leagueAccess: "none",
+      signupStatus: "not_enrolled",
+      levelSource: "nivelación inicial",
+      levelScore: totalScore,
+      levelAssessment: answers
     };
     state.data = createDefaultData(state.user);
     migrateToPickleballOnly();
     forcePickleballImages();
+    state.pendingRegistration = null;
     persistUser();
     persistData();
-    state.view = "home";
+    state.view = "inscriptions";
     renderApp();
-    showToast("Cuenta creada correctamente.");
+    showToast(`Nivel asignado: ${assignedLevel}. Ya puedes inscribirte en una liga.`);
   }
 
   if (form.id === "loginForm") {
@@ -1311,6 +1568,38 @@ document.addEventListener("submit", (event) => {
     closeModal();
     renderApp();
     showToast("Perfil actualizado en localStorage.");
+  }
+
+  if (form.id === "winterSignupForm") {
+    event.preventDefault();
+    if (!validate(form)) return showToast("Elige categoría y provincia.");
+    const data = formDataObject(form);
+    state.user.category = data.category;
+    state.user.province = data.province;
+    state.user.leagueAccess = "active";
+    state.user.signupStatus = "winter-paid";
+    state.user.accessMode = state.user.accessMode || "registered";
+    state.data.currentLeague = {
+      ...state.data.currentLeague,
+      id: "winter-league",
+      name: `Liga de Invierno Pickleball ${data.province}`,
+      province: data.province,
+      city: state.user.city || data.province,
+      category: data.category,
+      level: state.user.level || "2.5",
+      group: "Grupo pendiente",
+      phase: "Inscripción confirmada",
+      startDate: todayISO(21),
+      deadline: todayISO(70),
+      phaseProgress: 0,
+      points: 0,
+      groupPosition: "—"
+    };
+    persistUser();
+    persistData();
+    state.view = "matches";
+    renderApp();
+    showToast("Pago simulado confirmado. Funciones desbloqueadas y partidos próximamente.");
   }
 
   if (form.id === "contactForm") {
